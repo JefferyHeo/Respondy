@@ -1,5 +1,5 @@
 from django.http import JsonResponse
-from django.contrib.auth import authenticate, login, logout, get_user_model
+from django.contrib.auth import authenticate, get_user_model
 
 from rest_framework import generics, status
 from rest_framework.views import APIView
@@ -13,6 +13,7 @@ from .serializers import (
     ConversationSessionSerializer,
     ConversationSessionDetailSerializer,
     MessageSerializer,
+    get_tokens_for_user,
 )
 
 User = get_user_model()
@@ -41,11 +42,16 @@ class SignupView(APIView):
         serializer = SignupSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            login(request, user)
+            tokens = get_tokens_for_user(user)
+
             return Response({
                 "success": True,
                 "message": "signup successful",
-                "data": UserSerializer(user).data
+                "data": {
+                    "user": UserSerializer(user).data,
+                    "access": tokens["access"],
+                    "refresh": tokens["refresh"],
+                }
             }, status=status.HTTP_201_CREATED)
 
         return Response({
@@ -64,11 +70,16 @@ class LoginView(APIView):
 
         user = authenticate(request, username=username, password=password)
         if user is not None:
-            login(request, user)
+            tokens = get_tokens_for_user(user)
+
             return Response({
                 "success": True,
                 "message": "login successful",
-                "data": UserSerializer(user).data
+                "data": {
+                    "user": UserSerializer(user).data,
+                    "access": tokens["access"],
+                    "refresh": tokens["refresh"],
+                }
             }, status=status.HTTP_200_OK)
 
         return Response({
@@ -81,7 +92,6 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        logout(request)
         return Response({
             "success": True,
             "message": "logout successful"
