@@ -2,7 +2,12 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import ConversationSession, Message
+from .models import (
+    ConversationSession,
+    CaptureRequest,
+    ExtractedMessage,
+    AnalysisResult,
+)
 
 
 class SignupSerializer(serializers.ModelSerializer):
@@ -35,18 +40,73 @@ def get_tokens_for_user(user):
     }
 
 
-class MessageSerializer(serializers.ModelSerializer):
+class CaptureRequestSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Message
+        model = CaptureRequest
         fields = [
             "id",
             "session",
+            "image_url",
+            "source_type",
+            "processing_status",
+            "detected_at",
+            "uploaded_at",
+            "processing_started_at",
+            "processing_completed_at",
+            "error_message",
+            "gemini_extract_raw",
+            "gemini_analyze_raw",
+            "screen_context",
+            "retry_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "session",
+            "uploaded_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ExtractedMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExtractedMessage
+        fields = [
+            "id",
+            "capture_request",
+            "session",
             "sender_type",
             "content",
-            "order_index",
+            "message_order",
+            "confidence_score",
+            "raw_metadata",
+            "extracted_at",
+        ]
+        read_only_fields = ["id", "capture_request", "session", "extracted_at"]
+
+
+class AnalysisResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AnalysisResult
+        fields = [
+            "id",
+            "session",
+            "capture_request",
+            "summary",
+            "emotion",
+            "tone",
+            "risk_level",
+            "strategy",
+            "recommended_replies",
+            "caution_points",
+            "follow_up_suggestions",
+            "model_name",
+            "raw_result",
             "created_at",
         ]
-        read_only_fields = ["id", "session", "created_at"]
+        read_only_fields = ["id", "session", "capture_request", "created_at"]
 
 
 class ConversationSessionSerializer(serializers.ModelSerializer):
@@ -55,9 +115,12 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "platform_type",
+            "contact_name",
+            "conversation_key",
             "relation_type",
-            "situation_type",
             "goal_type",
+            "status",
             "created_at",
             "updated_at",
         ]
@@ -65,17 +128,22 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
 
 
 class ConversationSessionDetailSerializer(serializers.ModelSerializer):
-    messages = MessageSerializer(many=True, read_only=True)
+    captures = CaptureRequestSerializer(many=True, read_only=True)
+    analysis_results = AnalysisResultSerializer(many=True, read_only=True)
 
     class Meta:
         model = ConversationSession
         fields = [
             "id",
             "title",
+            "platform_type",
+            "contact_name",
+            "conversation_key",
             "relation_type",
-            "situation_type",
             "goal_type",
+            "status",
             "created_at",
             "updated_at",
-            "messages",
+            "captures",
+            "analysis_results",
         ]
