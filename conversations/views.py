@@ -5,14 +5,22 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 
-from .models import ConversationSession, Message
+from .models import (
+    ConversationSession,
+    CaptureRequest,
+    ExtractedMessage,
+    AnalysisResult,
+)
 from .serializers import (
     SignupSerializer,
     UserSerializer,
     ConversationSessionSerializer,
     ConversationSessionDetailSerializer,
-    MessageSerializer,
+    CaptureRequestSerializer,
+    ExtractedMessageSerializer,
+    AnalysisResultSerializer,
     get_tokens_for_user,
 )
 
@@ -113,7 +121,7 @@ class ConversationSessionListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ConversationSession.objects.filter(user=self.request.user)
+        return ConversationSession.objects.filter(user=self.request.user).order_by("-updated_at")
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -127,56 +135,94 @@ class ConversationSessionDetailView(generics.RetrieveAPIView):
         return ConversationSession.objects.filter(user=self.request.user)
 
 
-class MessageListCreateView(generics.ListCreateAPIView):
-    serializer_class = MessageSerializer
+class CaptureRequestListCreateView(generics.ListCreateAPIView):
+    serializer_class = CaptureRequestSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         session_id = self.kwargs["session_id"]
-        return Message.objects.filter(
-            session_id=session_id,
-            session__user=self.request.user
-        )
+        session = ConversationSession.objects.filter(
+            id=session_id,
+            user=self.request.user
+        ).first()
+
+        if not session:
+            raise PermissionDenied("해당 세션에 접근할 수 없습니다.")
+
+        return CaptureRequest.objects.filter(session=session).order_by("-created_at")
 
     def perform_create(self, serializer):
         session_id = self.kwargs["session_id"]
-        session = ConversationSession.objects.get(
+        session = ConversationSession.objects.filter(
             id=session_id,
             user=self.request.user
-        )
+        ).first()
+
+        if not session:
+            raise PermissionDenied("해당 세션에 접근할 수 없습니다.")
+
         serializer.save(session=session)
 
 
-class AnalyzeView(APIView):
+class ExtractedMessageListCreateView(generics.ListCreateAPIView):
+    serializer_class = ExtractedMessageSerializer
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, session_id):
-        try:
-            session = ConversationSession.objects.get(
-                id=session_id,
-                user=request.user
-            )
-        except ConversationSession.DoesNotExist:
-            return Response({
-                "success": False,
-                "message": "session not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+    def get_queryset(self):
+        capture_id = self.kwargs["capture_id"]
+        capture = CaptureRequest.objects.filter(
+            id=capture_id,
+            session__user=self.request.user
+        ).first()
 
-        messages = Message.objects.filter(session=session)
-        last_message = messages.last().content if messages.exists() else ""
+        if not capture:
+            raise PermissionDenied("해당 캡처에 접근할 수 없습니다.")
 
-        return Response({
-            "success": True,
-            "message": "analysis complete",
-            "data": {
-                "session_id": session.id,
-                "summary": "상대의 감정을 신중하게 살피며 차분하게 답장하는 것이 좋아 보입니다.",
-                "tone": "careful",
-                "last_message": last_message,
-                "recommended_replies": [
-                    "답장이 늦어서 미안해. 일부러 그런 건 아니었어.",
-                    "혹시 서운했다면 미안해. 네 기분을 더 듣고 싶어.",
-                    "지금 괜찮다면 차분하게 이야기해보고 싶어."
-                ]
-            }
-        }, status=status.HTTP_200_OK)
+        return ExtractedMessage.objects.filter(capture_request=capture).order_by("message_order", "id")
+
+    def perform_create(self, serializer):
+        capture_id = self.kwargs["capture_id"]
+        capture = CaptureRequest.objects.filter(
+            id=capture_id,
+            session__user=self.request.user
+        ).first()
+
+        if not capture:
+            raise PermissionDenied("해당 캡처에 접근할 수 없습니다.")
+
+        serializer.save(
+            session=capture.session,
+            capture_request=capture
+        )
+
+
+class AnalysisResultListCreateView(generics.ListCreateAPIView):
+    serializer_class = AnalysisResultSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        capture_id = self.kwargs["capture_id"]
+        capture = CaptureRequest.objects.filter(
+            id=capture_id,
+            session__user=self.request.user
+        ).first()
+
+        if not capture:
+            raise PermissionDenied("해당 캡처에 접근할 수 없습니다.")
+
+        return AnalysisResult.objects.filter(capture_request=capture).order_by("-created_at")
+
+    def perform_create(self, serializer):
+        capture_id = self.kwargs["capture_id"]
+        capture = CaptureRequest.objects.filter(
+            id=capture_id,
+            session__user=self.request.user
+        ).first()
+
+        if not capture:
+            raise PermissionDenied("해당 캡처에 접근할 수 없습니다.")
+
+        serializer.save(
+            session=capture.session,
+            capture_request=capture
+        )   
