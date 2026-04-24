@@ -1,0 +1,205 @@
+import base64
+import json
+import mimetypes
+import re
+
+import requests
+from django.conf import settings
+from django.utils import timezone
+
+from .models import CaptureRequest, ExtractedMessage, AnalysisResult
+
+
+GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def analyze_capture(capture):
+    capture.processing_status = CaptureRequest.ProcessingStatus.EXTRACTING
+    capture.processing_started_at = timezone.now()
+    capture.error_message = ""
+    capture.save(update_fields=["processing_status", "processing_started_at", "error_message", "updated_at"])
+
+    try:
+        payload = _build_gemini_payload(capture)
+        response_data = _call_gemini(payload)
+        capture.gemini_extract_raw = response_data
+        capture.processing_status = CaptureRequest.ProcessingStatus.ANALYZING
+        capture.save(update_fields=["gemini_extract_raw", "processing_status", "updated_at"])
+
+        parsed = _parse_gemini_response(response_data)
+        messages = parsed.get("messages", [])
+        analysis = parsed.get("analysis", {})
+
+        ExtractedMessage.objects.filter(capture_request=capture).delete()
+        AnalysisResult.objects.filter(capture_request=capture).delete()
+
+        for index, message in enumerate(messages, start=1):
+            ExtractedMessage.objects.create(
+                capture_request=capture,
+                session=capture.session,
+                sender_type=message.get("sender_type", ExtractedMessage.SenderType.UNKNOWN),
+                content=message.get("content", ""),
+                message_order=message.get("message_order") or index,
+                confidence_score=message.get("confidence_score"),
+                raw_metadata=message,
+            )
+
+        result = AnalysisResult.objects.create(
+            session=capture.session,
+            capture_request=capture,
+            summary=analysis.get("summary", ""),
+            emotion=analysis.get("emotion", AnalysisResult.EmotionType.UNKNOWN),
+            tone=analysis.get("tone", AnalysisResult.ToneType.UNKNOWN),
+            risk_level=analysis.get("risk_level", AnalysisResult.RiskLevel.UNKNOWN),
+            strategy=analysis.get("strategy", ""),
+            recommended_replies=analysis.get("recommended_replies", []),
+            caution_points=analysis.get("caution_points", []),
+            follow_up_suggestions=analysis.get("follow_up_suggestions", []),
+            model_name=settings.GEMINI_MODEL,
+            raw_result=parsed,
+        )
+
+        capture.gemini_analyze_raw = parsed
+        capture.processing_status = CaptureRequest.ProcessingStatus.COMPLETED
+        capture.processing_completed_at = timezone.now()
+        capture.save(update_fields=[
+            "gemini_analyze_raw",
+            "processing_status",
+            "processing_completed_at",
+            "updated_at",
+        ])
+        return result
+    except Exception as exc:
+        capture.processing_status = CaptureRequest.ProcessingStatus.FAILED
+        capture.error_message = str(exc)
+        capture.processing_completed_at = timezone.now()
+        capture.save(update_fields=[
+            "processing_status",
+            "error_message",
+            "processing_completed_at",
+            "updated_at",
+        ])
+        raise
+
+
+def _build_gemini_payload(capture):
+    session = capture.session
+    prompt = f"""
+You are Respondy's Korean conversation coaching engine.
+Read the KakaoTalk screenshot, extract chat messages in order, then analyze the conversation.
+
+Session context:
+- chat room title: {session.title}
+- platform: {session.platform_type}
+- contact name: {session.contact_name}
+- relationship: {session.relation_type}
+- goal type: {session.goal_type}
+- relationship background: {session.relationship_context}
+- user's analysis goal: {session.analysis_goal}
+- screen context: {capture.screen_context}
+
+Return only valid JSON with this exact shape:
+{{
+  "messages": [
+    {{
+      "sender_type": "user|other|unknown",
+      "content": "message text",
+      "message_order": 1,
+      "confidence_score": 0.0
+    }}
+  ],
+  "analysis": {{
+    "summary": "short Korean summary",
+    "emotion": "positive|neutral|annoyed|sad|angry|anxious|mixed|unknown",
+    "tone": "friendly|casual|polite|cold|sensitive|aggressive|awkward|unknown",
+    "risk_level": "low|medium|high|unknown",
+    "strategy": "Korean reply strategy",
+    "recommended_replies": ["Korean reply 1", "Korean reply 2", "Korean reply 3"],
+    "caution_points": ["Korean caution point"],
+    "follow_up_suggestions": ["Korean follow-up suggestion"]
+  }}
+}}
+"""
+    return {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": prompt},
+                {"inline_data": _get_image_inline_data(capture)},
+            ],
+        }],
+        "generationConfig": {
+            "temperature": 0.4,
+            "responseMimeType": "application/json",
+        },
+    }
+
+
+def _call_gemini(payload):
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    url = GEMINI_ENDPOINT.format(model=settings.GEMINI_MODEL)
+    response = requests.post(
+        url,
+        params={"key": settings.GEMINI_API_KEY},
+        json=payload,
+        timeout=45,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            f"Gemini API request failed with status {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+    return response.json()
+
+
+def _get_image_inline_data(capture):
+    if capture.image_base64:
+        return {
+            "mime_type": _guess_base64_mime_type(capture.image_base64),
+            "data": _strip_data_url(capture.image_base64),
+        }
+
+    if capture.image_file:
+        content = capture.image_file.read()
+        mime_type = mimetypes.guess_type(capture.image_file.name)[0] or "image/png"
+        return {
+            "mime_type": mime_type,
+            "data": base64.b64encode(content).decode("ascii"),
+        }
+
+    if capture.image_url:
+        response = requests.get(capture.image_url, timeout=20)
+        response.raise_for_status()
+        return {
+            "mime_type": response.headers.get("content-type", "image/png").split(";")[0],
+            "data": base64.b64encode(response.content).decode("ascii"),
+        }
+
+    raise ValueError("One of image_base64, image_file, or image_url is required.")
+
+
+def _parse_gemini_response(response_data):
+    candidates = response_data.get("candidates") or []
+    parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+    text = "".join(part.get("text", "") for part in parts)
+    text = _strip_code_fence(text.strip())
+    return json.loads(text)
+
+
+def _strip_code_fence(text):
+    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
+    return match.group(1) if match else text
+
+
+def _strip_data_url(value):
+    if "," in value and value.strip().startswith("data:"):
+        return value.split(",", 1)[1]
+    return value
+
+
+def _guess_base64_mime_type(value):
+    if value.startswith("data:") and ";" in value:
+        return value.split(";", 1)[0].replace("data:", "")
+    return "image/png"

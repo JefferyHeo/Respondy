@@ -51,11 +51,13 @@ class ConversationSession(models.Model):
         choices=RelationType.choices,
         default=RelationType.OTHER
     )
+    relationship_context = models.TextField(blank=True)
     goal_type = models.CharField(
         max_length=30,
         choices=GoalType.choices,
         default=GoalType.GENERAL
     )
+    analysis_goal = models.TextField(blank=True)
     status = models.CharField(
         max_length=20,
         choices=StatusType.choices,
@@ -97,7 +99,9 @@ class CaptureRequest(models.Model):
         on_delete=models.CASCADE,
         related_name="captures"
     )
-    image_url = models.URLField(max_length=1000)
+    image_url = models.URLField(max_length=1000, blank=True)
+    image_file = models.FileField(upload_to="captures/%Y/%m/%d/", blank=True, null=True)
+    image_base64 = models.TextField(blank=True)
     source_type = models.CharField(
         max_length=20,
         choices=SourceType.choices,

@@ -47,6 +47,8 @@ class CaptureRequestSerializer(serializers.ModelSerializer):
             "id",
             "session",
             "image_url",
+            "image_file",
+            "image_base64",
             "source_type",
             "processing_status",
             "detected_at",
@@ -68,6 +70,17 @@ class CaptureRequestSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "image_base64": {"write_only": True},
+        }
+
+    def validate(self, attrs):
+        has_image = attrs.get("image_url") or attrs.get("image_file") or attrs.get("image_base64")
+        if not has_image and not self.instance:
+            raise serializers.ValidationError(
+                "image_url, image_file, image_base64 중 하나는 필요합니다."
+            )
+        return attrs
 
 
 class ExtractedMessageSerializer(serializers.ModelSerializer):
@@ -119,7 +132,9 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
             "contact_name",
             "conversation_key",
             "relation_type",
+            "relationship_context",
             "goal_type",
+            "analysis_goal",
             "status",
             "created_at",
             "updated_at",
@@ -140,7 +155,9 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
             "contact_name",
             "conversation_key",
             "relation_type",
+            "relationship_context",
             "goal_type",
+            "analysis_goal",
             "status",
             "created_at",
             "updated_at",
