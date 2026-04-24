@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from .models import (
     ConversationSession,
@@ -23,6 +24,7 @@ from .serializers import (
     AnalysisResultSerializer,
     get_tokens_for_user,
 )
+from .services import analyze_capture
 
 User = get_user_model()
 
@@ -138,6 +140,7 @@ class ConversationSessionDetailView(generics.RetrieveAPIView):
 class CaptureRequestListCreateView(generics.ListCreateAPIView):
     serializer_class = CaptureRequestSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
         session_id = self.kwargs["session_id"]
@@ -162,6 +165,33 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
             raise PermissionDenied("해당 세션에 접근할 수 없습니다.")
 
         serializer.save(session=session)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        capture = serializer.instance
+
+        try:
+            analyze_capture(capture)
+        except Exception:
+            pass
+
+        data = CaptureRequestSerializer(capture, context=self.get_serializer_context()).data
+        data["messages"] = ExtractedMessageSerializer(
+            capture.extracted_messages.all(),
+            many=True,
+            context=self.get_serializer_context(),
+        ).data
+        data["analysis_results"] = AnalysisResultSerializer(
+            capture.analysis_results.all(),
+            many=True,
+            context=self.get_serializer_context(),
+        ).data
+        return Response({
+            "success": capture.processing_status == CaptureRequest.ProcessingStatus.COMPLETED,
+            "data": data,
+        }, status=status.HTTP_201_CREATED)
 
 
 class ExtractedMessageListCreateView(generics.ListCreateAPIView):
