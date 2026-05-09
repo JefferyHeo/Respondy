@@ -80,6 +80,8 @@ def analyze_capture(capture):
             "updated_at",
         ])
         raise
+    finally:
+        _clear_capture_image_data(capture)
 
 
 def _build_gemini_payload(capture):
@@ -198,6 +200,26 @@ def _get_image_inline_data(capture):
         }
 
     raise ValueError("One of image_base64, image_file, or image_url is required.")
+
+
+def _clear_capture_image_data(capture):
+    update_fields = []
+
+    if capture.image_base64:
+        capture.image_base64 = ""
+        update_fields.append("image_base64")
+
+    if capture.image_file:
+        storage = capture.image_file.storage
+        name = capture.image_file.name
+        capture.image_file = None
+        update_fields.append("image_file")
+        if name:
+            storage.delete(name)
+
+    if update_fields:
+        update_fields.append("updated_at")
+        capture.save(update_fields=update_fields)
 
 
 def _parse_gemini_response(response_data):
