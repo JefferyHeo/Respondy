@@ -9,12 +9,14 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from .models import (
+    Avatar,
     ConversationSession,
     CaptureRequest,
     ExtractedMessage,
     AnalysisResult,
 )
 from .serializers import (
+    AvatarSerializer,
     SignupSerializer,
     UserSerializer,
     ConversationSessionSerializer,
@@ -116,6 +118,25 @@ class MeView(APIView):
             "success": True,
             "data": UserSerializer(request.user).data
         }, status=status.HTTP_200_OK)
+
+
+class AvatarListCreateView(generics.ListCreateAPIView):
+    serializer_class = AvatarSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Avatar.objects.filter(user=self.request.user).order_by("name", "-updated_at")
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class AvatarDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = AvatarSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Avatar.objects.filter(user=self.request.user)
 
 
 class ConversationSessionListCreateView(generics.ListCreateAPIView):
