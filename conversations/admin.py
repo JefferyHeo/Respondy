@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import (
+    Avatar,
     ConversationSession,
     CaptureRequest,
     ExtractedMessage,
@@ -7,10 +8,21 @@ from .models import (
 )
 
 
+@admin.register(Avatar)
+class AvatarAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "name", "user", "relation_type", "age",
+        "gender", "is_active", "updated_at"
+    )
+    list_filter = ("relation_type", "gender", "is_active")
+    search_fields = ("name", "background", "memo", "user__username")
+    ordering = ("name", "-updated_at")
+
+
 @admin.register(ConversationSession)
 class ConversationSessionAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "title", "user", "platform_type", "contact_name",
+        "id", "title", "user", "avatar", "platform_type", "contact_name",
         "relation_type", "goal_type", "status", "updated_at"
     )
     list_filter = ("platform_type", "relation_type", "goal_type", "status")
