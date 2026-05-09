@@ -84,6 +84,22 @@ def analyze_capture(capture):
 
 def _build_gemini_payload(capture):
     session = capture.session
+    avatar = session.avatar
+    contact_name = avatar.name if avatar else session.contact_name
+    relation_type = avatar.relation_type if avatar else session.relation_type
+    relationship_background = avatar.background if avatar else session.relationship_context
+    avatar_context = "No avatar selected."
+    if avatar:
+        avatar_context = f"""
+- avatar name: {avatar.name}
+- avatar relationship: {avatar.relation_type}
+- avatar age: {avatar.age or "unknown"}
+- avatar gender: {avatar.gender}
+- avatar personality: {avatar.personality}
+- avatar speech style: {avatar.speech_style}
+- avatar background with user: {avatar.background}
+- avatar memo: {avatar.memo}
+"""
     prompt = f"""
 You are Respondy's Korean conversation coaching engine.
 Read the KakaoTalk screenshot, extract chat messages in order, then analyze the conversation.
@@ -91,12 +107,16 @@ Read the KakaoTalk screenshot, extract chat messages in order, then analyze the 
 Session context:
 - chat room title: {session.title}
 - platform: {session.platform_type}
-- contact name: {session.contact_name}
-- relationship: {session.relation_type}
+- contact name: {contact_name}
+- relationship: {relation_type}
 - goal type: {session.goal_type}
-- relationship background: {session.relationship_context}
+- relationship background: {relationship_background}
+- current situation: {session.situation_context}
 - user's analysis goal: {session.analysis_goal}
 - screen context: {capture.screen_context}
+
+Avatar context:
+{avatar_context}
 
 Return only valid JSON with this exact shape:
 {{

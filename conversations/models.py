@@ -2,6 +2,59 @@ from django.conf import settings
 from django.db import models
 
 
+class Avatar(models.Model):
+    class RelationType(models.TextChoices):
+        FRIEND = "friend", "Friend"
+        CRUSH = "crush", "Crush"
+        PARTNER = "partner", "Partner"
+        FAMILY = "family", "Family"
+        BOSS = "boss", "Boss"
+        COWORKER = "coworker", "Coworker"
+        OTHER = "other", "Other"
+
+    class GenderType(models.TextChoices):
+        MALE = "male", "Male"
+        FEMALE = "female", "Female"
+        NON_BINARY = "non_binary", "Non-binary"
+        UNKNOWN = "unknown", "Unknown"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="avatars"
+    )
+    name = models.CharField(max_length=100)
+    relation_type = models.CharField(
+        max_length=20,
+        choices=RelationType.choices,
+        default=RelationType.OTHER
+    )
+    age = models.PositiveSmallIntegerField(blank=True, null=True)
+    gender = models.CharField(
+        max_length=20,
+        choices=GenderType.choices,
+        default=GenderType.UNKNOWN
+    )
+    personality = models.TextField(blank=True)
+    speech_style = models.TextField(blank=True)
+    background = models.TextField(blank=True)
+    memo = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "-updated_at"]
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+            models.Index(fields=["user", "relation_type"]),
+            models.Index(fields=["user", "name"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.user})"
+
+
 class ConversationSession(models.Model):
     class PlatformType(models.TextChoices):
         KAKAO = "kakao", "KakaoTalk"
@@ -37,6 +90,13 @@ class ConversationSession(models.Model):
         on_delete=models.CASCADE,
         related_name="conversation_sessions"
     )
+    avatar = models.ForeignKey(
+        Avatar,
+        on_delete=models.SET_NULL,
+        related_name="conversation_sessions",
+        blank=True,
+        null=True
+    )
     title = models.CharField(max_length=255)
     platform_type = models.CharField(
         max_length=20,
@@ -58,6 +118,7 @@ class ConversationSession(models.Model):
         default=GoalType.GENERAL
     )
     analysis_goal = models.TextField(blank=True)
+    situation_context = models.TextField(blank=True)
     status = models.CharField(
         max_length=20,
         choices=StatusType.choices,

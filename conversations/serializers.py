@@ -3,6 +3,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
+    Avatar,
     ConversationSession,
     CaptureRequest,
     ExtractedMessage,
@@ -30,6 +31,26 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "email"]
+
+
+class AvatarSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Avatar
+        fields = [
+            "id",
+            "name",
+            "relation_type",
+            "age",
+            "gender",
+            "personality",
+            "speech_style",
+            "background",
+            "memo",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 def get_tokens_for_user(user):
@@ -123,10 +144,27 @@ class AnalysisResultSerializer(serializers.ModelSerializer):
 
 
 class ConversationSessionSerializer(serializers.ModelSerializer):
+    avatar = AvatarSerializer(read_only=True)
+    avatar_id = serializers.PrimaryKeyRelatedField(
+        source="avatar",
+        queryset=Avatar.objects.none(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            self.fields["avatar_id"].queryset = Avatar.objects.filter(user=request.user)
+
     class Meta:
         model = ConversationSession
         fields = [
             "id",
+            "avatar",
+            "avatar_id",
             "title",
             "platform_type",
             "contact_name",
@@ -135,6 +173,7 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
             "relationship_context",
             "goal_type",
             "analysis_goal",
+            "situation_context",
             "status",
             "created_at",
             "updated_at",
@@ -143,6 +182,7 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
 
 
 class ConversationSessionDetailSerializer(serializers.ModelSerializer):
+    avatar = AvatarSerializer(read_only=True)
     captures = CaptureRequestSerializer(many=True, read_only=True)
     analysis_results = AnalysisResultSerializer(many=True, read_only=True)
 
@@ -150,6 +190,7 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
         model = ConversationSession
         fields = [
             "id",
+            "avatar",
             "title",
             "platform_type",
             "contact_name",
@@ -158,6 +199,7 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
             "relationship_context",
             "goal_type",
             "analysis_goal",
+            "situation_context",
             "status",
             "created_at",
             "updated_at",
