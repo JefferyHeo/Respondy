@@ -24,6 +24,9 @@ class Avatar(models.Model):
         related_name="avatars"
     )
     name = models.CharField(max_length=100)
+    age_group = models.CharField(max_length=20, blank=True)
+    current_relation = models.CharField(max_length=100, blank=True)
+    target_relation = models.CharField(max_length=100, blank=True)
     relation_type = models.CharField(
         max_length=20,
         choices=RelationType.choices,
@@ -49,6 +52,7 @@ class Avatar(models.Model):
             models.Index(fields=["user", "is_active"]),
             models.Index(fields=["user", "relation_type"]),
             models.Index(fields=["user", "name"]),
+            models.Index(fields=["user", "current_relation"]),
         ]
 
     def __str__(self):

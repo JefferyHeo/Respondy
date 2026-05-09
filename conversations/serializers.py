@@ -39,6 +39,9 @@ class AvatarSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "age_group",
+            "current_relation",
+            "target_relation",
             "relation_type",
             "age",
             "gender",

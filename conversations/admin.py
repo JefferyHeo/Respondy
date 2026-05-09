@@ -11,11 +11,11 @@ from .models import (
 @admin.register(Avatar)
 class AvatarAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "name", "user", "relation_type", "age",
+        "id", "name", "user", "current_relation", "target_relation", "age_group", "relation_type", "age",
         "gender", "is_active", "updated_at"
     )
     list_filter = ("relation_type", "gender", "is_active")
-    search_fields = ("name", "background", "memo", "user__username")
+    search_fields = ("name", "current_relation", "target_relation", "background", "memo", "user__username")
     ordering = ("name", "-updated_at")
 
 
