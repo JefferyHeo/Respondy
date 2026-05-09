@@ -88,13 +88,18 @@ def _build_gemini_payload(capture):
     session = capture.session
     avatar = session.avatar
     contact_name = avatar.name if avatar else session.contact_name
-    relation_type = avatar.relation_type if avatar else session.relation_type
+    relation_type = avatar.current_relation if avatar and avatar.current_relation else (
+        avatar.relation_type if avatar else session.relation_type
+    )
     relationship_background = avatar.background if avatar else session.relationship_context
     avatar_context = "No avatar selected."
     if avatar:
         avatar_context = f"""
 - avatar name: {avatar.name}
-- avatar relationship: {avatar.relation_type}
+- avatar age group: {avatar.age_group}
+- avatar current relationship: {avatar.current_relation}
+- avatar target relationship: {avatar.target_relation}
+- avatar relationship type: {avatar.relation_type}
 - avatar age: {avatar.age or "unknown"}
 - avatar gender: {avatar.gender}
 - avatar personality: {avatar.personality}
