@@ -29,7 +29,7 @@ from .serializers import (
     ManualAnalysisRequestSerializer,
     get_tokens_for_user,
 )
-from .services import analyze_capture, analyze_manual_message
+from .services import analyze_capture, analyze_manual_message, build_capture_image_hash
 
 User = get_user_model()
 
@@ -256,7 +256,7 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
-    def get_queryset(self):
+    def get_session(self):
         session_id = self.kwargs["session_id"]
         session = ConversationSession.objects.filter(
             id=session_id,
@@ -266,31 +266,16 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
         if not session:
             raise PermissionDenied("해당 세션에 접근할 수 없습니다.")
 
+        return session
+
+    def get_queryset(self):
+        session = self.get_session()
         return CaptureRequest.objects.filter(session=session).order_by("-created_at")
 
     def perform_create(self, serializer):
-        session_id = self.kwargs["session_id"]
-        session = ConversationSession.objects.filter(
-            id=session_id,
-            user=self.request.user
-        ).first()
+        serializer.save(session=self.get_session())
 
-        if not session:
-            raise PermissionDenied("해당 세션에 접근할 수 없습니다.")
-
-        serializer.save(session=session)
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        capture = serializer.instance
-
-        try:
-            analyze_capture(capture)
-        except Exception:
-            pass
-
+    def get_capture_response_data(self, capture):
         data = CaptureRequestSerializer(capture, context=self.get_serializer_context()).data
         data["messages"] = ExtractedMessageSerializer(
             capture.extracted_messages.all(),
@@ -302,9 +287,43 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
             many=True,
             context=self.get_serializer_context(),
         ).data
+        return data
+
+    def create(self, request, *args, **kwargs):
+        session = self.get_session()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        image_hash = build_capture_image_hash(serializer.validated_data)
+        if image_hash:
+            duplicate_capture = CaptureRequest.objects.filter(
+                session=session,
+                image_hash=image_hash,
+                processing_status=CaptureRequest.ProcessingStatus.COMPLETED,
+            ).order_by("-created_at").first()
+            if duplicate_capture:
+                return Response({
+                    "success": True,
+                    "duplicate": True,
+                    "message": "same capture skipped",
+                    "data": self.get_capture_response_data(duplicate_capture),
+                }, status=status.HTTP_200_OK)
+
+        serializer.save(session=session, image_hash=image_hash)
+        capture = serializer.instance
+
+        try:
+            analyze_capture(capture)
+        except Exception:
+            pass
+
         return Response({
             "success": capture.processing_status == CaptureRequest.ProcessingStatus.COMPLETED,
-            "data": data,
+            "duplicate": False,
+            "message": "capture analyzed successfully"
+            if capture.processing_status == CaptureRequest.ProcessingStatus.COMPLETED
+            else "capture analysis failed",
+            "data": self.get_capture_response_data(capture),
         }, status=status.HTTP_201_CREATED)
 
 

@@ -163,6 +163,7 @@ class CaptureRequestSerializer(serializers.ModelSerializer):
             "image_url",
             "image_file",
             "image_base64",
+            "image_hash",
             "source_type",
             "processing_status",
             "detected_at",
@@ -186,6 +187,7 @@ class CaptureRequestSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "image_base64": {"write_only": True},
+            "image_hash": {"write_only": True},
         }
 
     def validate(self, attrs):
