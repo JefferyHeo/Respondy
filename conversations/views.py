@@ -24,9 +24,10 @@ from .serializers import (
     CaptureRequestSerializer,
     ExtractedMessageSerializer,
     AnalysisResultSerializer,
+    ManualAnalysisRequestSerializer,
     get_tokens_for_user,
 )
-from .services import analyze_capture
+from .services import analyze_capture, analyze_manual_message
 
 User = get_user_model()
 
@@ -156,6 +157,55 @@ class ConversationSessionDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return ConversationSession.objects.filter(user=self.request.user)
+
+
+class ManualAnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ManualAnalysisRequestSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        avatar = data["avatar"]
+        title = data.get("title") or f"{avatar.name} 수동 입력 분석"
+
+        session = ConversationSession.objects.create(
+            user=request.user,
+            avatar=avatar,
+            title=title,
+            platform_type=data.get("platform_type", ConversationSession.PlatformType.UNKNOWN),
+            goal_type=data.get("goal_type", ConversationSession.GoalType.GENERAL),
+            situation_context=data.get("situation_context", ""),
+            analysis_goal=data.get("analysis_goal", ""),
+        )
+
+        try:
+            capture, message, analysis = analyze_manual_message(
+                session,
+                data["received_message"],
+            )
+        except Exception:
+            capture = session.captures.order_by("-created_at").first()
+            return Response({
+                "success": False,
+                "data": {
+                    "session": ConversationSessionSerializer(session, context={"request": request}).data,
+                    "capture": CaptureRequestSerializer(capture, context={"request": request}).data if capture else None,
+                },
+            }, status=status.HTTP_201_CREATED)
+
+        return Response({
+            "success": True,
+            "data": {
+                "session": ConversationSessionSerializer(session, context={"request": request}).data,
+                "capture": CaptureRequestSerializer(capture, context={"request": request}).data,
+                "received_message": ExtractedMessageSerializer(message, context={"request": request}).data,
+                "analysis": AnalysisResultSerializer(analysis, context={"request": request}).data,
+            },
+        }, status=status.HTTP_201_CREATED)
 
 
 class CaptureRequestListCreateView(generics.ListCreateAPIView):
