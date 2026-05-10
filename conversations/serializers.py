@@ -183,12 +183,62 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    analysis_type = serializers.SerializerMethodField()
+    avatar_name = serializers.SerializerMethodField()
+    latest_summary = serializers.SerializerMethodField()
+    latest_emotion = serializers.SerializerMethodField()
+    latest_tone = serializers.SerializerMethodField()
+    latest_risk_level = serializers.SerializerMethodField()
+    latest_capture_status = serializers.SerializerMethodField()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             self.fields["avatar_id"].queryset = Avatar.objects.filter(user=request.user)
+
+    def _latest_capture(self, obj):
+        if not hasattr(obj, "_latest_capture_cache"):
+            obj._latest_capture_cache = obj.captures.order_by("-created_at").first()
+        return obj._latest_capture_cache
+
+    def _latest_analysis(self, obj):
+        if not hasattr(obj, "_latest_analysis_cache"):
+            obj._latest_analysis_cache = obj.analysis_results.order_by("-created_at").first()
+        return obj._latest_analysis_cache
+
+    def get_analysis_type(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return None
+        if capture.source_type == CaptureRequest.SourceType.API:
+            return "manual"
+        if capture.source_type == CaptureRequest.SourceType.ELECTRON:
+            return "realtime"
+        return capture.source_type
+
+    def get_avatar_name(self, obj):
+        return obj.avatar.name if obj.avatar else obj.contact_name
+
+    def get_latest_summary(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.summary if analysis else ""
+
+    def get_latest_emotion(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.emotion if analysis else None
+
+    def get_latest_tone(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.tone if analysis else None
+
+    def get_latest_risk_level(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.risk_level if analysis else None
+
+    def get_latest_capture_status(self, obj):
+        capture = self._latest_capture(obj)
+        return capture.processing_status if capture else None
 
     class Meta:
         model = ConversationSession
@@ -206,6 +256,13 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
             "analysis_goal",
             "situation_context",
             "status",
+            "analysis_type",
+            "avatar_name",
+            "latest_summary",
+            "latest_emotion",
+            "latest_tone",
+            "latest_risk_level",
+            "latest_capture_status",
             "created_at",
             "updated_at",
         ]
@@ -216,6 +273,49 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
     avatar = AvatarSerializer(read_only=True)
     captures = CaptureRequestSerializer(many=True, read_only=True)
     analysis_results = AnalysisResultSerializer(many=True, read_only=True)
+    analysis_type = serializers.SerializerMethodField()
+    latest_capture = serializers.SerializerMethodField()
+    latest_messages = serializers.SerializerMethodField()
+    latest_analysis = serializers.SerializerMethodField()
+
+    def _latest_capture(self, obj):
+        if not hasattr(obj, "_latest_capture_cache"):
+            obj._latest_capture_cache = obj.captures.order_by("-created_at").first()
+        return obj._latest_capture_cache
+
+    def _latest_analysis(self, obj):
+        if not hasattr(obj, "_latest_analysis_cache"):
+            obj._latest_analysis_cache = obj.analysis_results.order_by("-created_at").first()
+        return obj._latest_analysis_cache
+
+    def get_analysis_type(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return None
+        if capture.source_type == CaptureRequest.SourceType.API:
+            return "manual"
+        if capture.source_type == CaptureRequest.SourceType.ELECTRON:
+            return "realtime"
+        return capture.source_type
+
+    def get_latest_capture(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return None
+        return CaptureRequestSerializer(capture, context=self.context).data
+
+    def get_latest_messages(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return []
+        messages = capture.extracted_messages.order_by("message_order", "id")
+        return ExtractedMessageSerializer(messages, many=True, context=self.context).data
+
+    def get_latest_analysis(self, obj):
+        analysis = self._latest_analysis(obj)
+        if not analysis:
+            return None
+        return AnalysisResultSerializer(analysis, context=self.context).data
 
     class Meta:
         model = ConversationSession
@@ -234,6 +334,10 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "updated_at",
+            "analysis_type",
+            "latest_capture",
+            "latest_messages",
+            "latest_analysis",
             "captures",
             "analysis_results",
         ]
