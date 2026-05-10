@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import json
 import mimetypes
 import re
@@ -11,6 +13,27 @@ from .models import CaptureRequest, ExtractedMessage, AnalysisResult
 
 
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def build_capture_image_hash(attrs):
+    if attrs.get("image_base64"):
+        return _hmac_hexdigest(_strip_data_url(attrs["image_base64"]).encode("utf-8"))
+
+    image_file = attrs.get("image_file")
+    if image_file:
+        position = image_file.tell() if hasattr(image_file, "tell") else None
+        content = image_file.read()
+        if position is not None and hasattr(image_file, "seek"):
+            image_file.seek(position)
+        return _hmac_hexdigest(content)
+
+    if attrs.get("image_url"):
+        return _hmac_hexdigest(f"url:{attrs['image_url']}".encode("utf-8"))
+
+    if attrs.get("image_hash"):
+        return _hmac_hexdigest(f"client:{attrs['image_hash']}".encode("utf-8"))
+
+    return ""
 
 
 def analyze_capture(capture):
@@ -384,3 +407,8 @@ def _guess_base64_mime_type(value):
     if value.startswith("data:") and ";" in value:
         return value.split(";", 1)[0].replace("data:", "")
     return "image/png"
+
+
+def _hmac_hexdigest(value):
+    secret = settings.SECRET_KEY.encode("utf-8")
+    return hmac.new(secret, value, hashlib.sha256).hexdigest()
