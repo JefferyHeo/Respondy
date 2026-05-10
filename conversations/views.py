@@ -19,6 +19,7 @@ from .serializers import (
     AvatarSerializer,
     SignupSerializer,
     UserSerializer,
+    UserProfileSerializer,
     ConversationSessionSerializer,
     ConversationSessionDetailSerializer,
     CaptureRequestSerializer,
@@ -118,6 +119,30 @@ class MeView(APIView):
         return Response({
             "success": True,
             "data": UserSerializer(request.user).data
+        }, status=status.HTTP_200_OK)
+
+
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "success": True,
+            "data": UserProfileSerializer(request.user).data
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        serializer = UserProfileSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({
+            "success": True,
+            "message": "profile updated successfully",
+            "data": serializer.data
         }, status=status.HTTP_200_OK)
 
 

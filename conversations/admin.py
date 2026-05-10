@@ -1,11 +1,19 @@
 from django.contrib import admin
 from .models import (
+    UserProfile,
     Avatar,
     ConversationSession,
     CaptureRequest,
     ExtractedMessage,
     AnalysisResult,
 )
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "name", "birth_date", "updated_at")
+    search_fields = ("name", "user__username", "user__email")
+    ordering = ("-updated_at",)
 
 
 @admin.register(Avatar)
