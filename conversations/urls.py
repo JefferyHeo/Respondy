@@ -10,6 +10,7 @@ from .views import (
     LoginView,
     LogoutView,
     MeView,
+    ManualAnalysisView,
     ConversationSessionListCreateView,
     ConversationSessionDetailView,
     CaptureRequestListCreateView,
@@ -29,6 +30,8 @@ urlpatterns = [
 
     path("avatars/", AvatarListCreateView.as_view(), name="avatar-list-create"),
     path("avatars/<int:pk>/", AvatarDetailView.as_view(), name="avatar-detail"),
+
+    path("manual-analysis/", ManualAnalysisView.as_view(), name="manual-analysis"),
 
     path("sessions/", ConversationSessionListCreateView.as_view(), name="session-list-create"),
     path("sessions/<int:pk>/", ConversationSessionDetailView.as_view(), name="session-detail"),

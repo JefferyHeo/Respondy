@@ -146,6 +146,34 @@ class AnalysisResultSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "session", "capture_request", "created_at"]
 
 
+class ManualAnalysisRequestSerializer(serializers.Serializer):
+    avatar_id = serializers.PrimaryKeyRelatedField(
+        source="avatar",
+        queryset=Avatar.objects.none(),
+        required=True,
+    )
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    platform_type = serializers.ChoiceField(
+        choices=ConversationSession.PlatformType.choices,
+        default=ConversationSession.PlatformType.UNKNOWN,
+        required=False,
+    )
+    goal_type = serializers.ChoiceField(
+        choices=ConversationSession.GoalType.choices,
+        default=ConversationSession.GoalType.GENERAL,
+        required=False,
+    )
+    situation_context = serializers.CharField(required=False, allow_blank=True)
+    analysis_goal = serializers.CharField(required=False, allow_blank=True)
+    received_message = serializers.CharField(required=True, allow_blank=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            self.fields["avatar_id"].queryset = Avatar.objects.filter(user=request.user)
+
+
 class ConversationSessionSerializer(serializers.ModelSerializer):
     avatar = AvatarSerializer(read_only=True)
     avatar_id = serializers.PrimaryKeyRelatedField(
