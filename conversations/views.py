@@ -151,7 +151,7 @@ class ConversationSessionListCreateView(generics.ListCreateAPIView):
         serializer.save(user=self.request.user)
 
 
-class ConversationSessionDetailView(generics.RetrieveAPIView):
+class ConversationSessionDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = ConversationSessionDetailSerializer
     permission_classes = [IsAuthenticated]
 
