@@ -3,6 +3,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
+    UserProfile,
     Avatar,
     ConversationSession,
     CaptureRequest,
@@ -24,13 +25,75 @@ class SignupSerializer(serializers.ModelSerializer):
             email=validated_data.get("email", ""),
             password=validated_data["password"]
         )
+        UserProfile.objects.create(user=user, name=user.username)
         return user
 
 
 class UserSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    birth_date = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "username", "email"]
+        fields = ["id", "username", "name", "email", "birth_date"]
+
+    def get_name(self, obj):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=obj,
+            defaults={"name": obj.username},
+        )
+        return profile.name or obj.username
+
+    def get_birth_date(self, obj):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=obj,
+            defaults={"name": obj.username},
+        )
+        return profile.birth_date
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(max_length=150)
+    birth_date = serializers.DateField(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "email", "birth_date"]
+        read_only_fields = ["id"]
+
+    def to_representation(self, instance):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=instance,
+            defaults={"name": instance.username},
+        )
+        return {
+            "id": instance.id,
+            "name": profile.name or instance.username,
+            "email": instance.email,
+            "birth_date": profile.birth_date,
+        }
+
+    def update(self, instance, validated_data):
+        profile_data = {}
+        if "name" in validated_data:
+            profile_data["name"] = validated_data.pop("name")
+        if "birth_date" in validated_data:
+            profile_data["birth_date"] = validated_data.pop("birth_date")
+
+        instance.email = validated_data.get("email", instance.email)
+        instance.save(update_fields=["email"])
+
+        if profile_data:
+            profile, _ = UserProfile.objects.get_or_create(
+                user=instance,
+                defaults={"name": instance.username},
+            )
+            profile.name = profile_data.get("name", profile.name)
+            if "birth_date" in profile_data:
+                profile.birth_date = profile_data["birth_date"]
+            profile.save(update_fields=["name", "birth_date", "updated_at"])
+
+        return instance
 
 
 class AvatarSerializer(serializers.ModelSerializer):
