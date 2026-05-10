@@ -11,6 +11,7 @@ from .views import (
     LogoutView,
     MeView,
     PasswordChangeView,
+    UserProfileView,
     ManualAnalysisView,
     ConversationSessionListCreateView,
     ConversationSessionDetailView,
@@ -28,6 +29,7 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("auth/me/", MeView.as_view(), name="me"),
     path("auth/password/", PasswordChangeView.as_view(), name="password-change"),
+    path("auth/profile/", UserProfileView.as_view(), name="profile"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
 
     path("avatars/", AvatarListCreateView.as_view(), name="avatar-list-create"),

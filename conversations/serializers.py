@@ -4,6 +4,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
+    UserProfile,
     Avatar,
     ConversationSession,
     CaptureRequest,
@@ -25,13 +26,75 @@ class SignupSerializer(serializers.ModelSerializer):
             email=validated_data.get("email", ""),
             password=validated_data["password"]
         )
+        UserProfile.objects.create(user=user, name=user.username)
         return user
 
 
 class UserSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    birth_date = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "username", "email"]
+        fields = ["id", "username", "name", "email", "birth_date"]
+
+    def get_name(self, obj):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=obj,
+            defaults={"name": obj.username},
+        )
+        return profile.name or obj.username
+
+    def get_birth_date(self, obj):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=obj,
+            defaults={"name": obj.username},
+        )
+        return profile.birth_date
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(max_length=150)
+    birth_date = serializers.DateField(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "email", "birth_date"]
+        read_only_fields = ["id"]
+
+    def to_representation(self, instance):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=instance,
+            defaults={"name": instance.username},
+        )
+        return {
+            "id": instance.id,
+            "name": profile.name or instance.username,
+            "email": instance.email,
+            "birth_date": profile.birth_date,
+        }
+
+    def update(self, instance, validated_data):
+        profile_data = {}
+        if "name" in validated_data:
+            profile_data["name"] = validated_data.pop("name")
+        if "birth_date" in validated_data:
+            profile_data["birth_date"] = validated_data.pop("birth_date")
+
+        instance.email = validated_data.get("email", instance.email)
+        instance.save(update_fields=["email"])
+
+        if profile_data:
+            profile, _ = UserProfile.objects.get_or_create(
+                user=instance,
+                defaults={"name": instance.username},
+            )
+            profile.name = profile_data.get("name", profile.name)
+            if "birth_date" in profile_data:
+                profile.birth_date = profile_data["birth_date"]
+            profile.save(update_fields=["name", "birth_date", "updated_at"])
+
+        return instance
 
 
 class PasswordChangeSerializer(serializers.Serializer):
@@ -210,12 +273,62 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    analysis_type = serializers.SerializerMethodField()
+    avatar_name = serializers.SerializerMethodField()
+    latest_summary = serializers.SerializerMethodField()
+    latest_emotion = serializers.SerializerMethodField()
+    latest_tone = serializers.SerializerMethodField()
+    latest_risk_level = serializers.SerializerMethodField()
+    latest_capture_status = serializers.SerializerMethodField()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             self.fields["avatar_id"].queryset = Avatar.objects.filter(user=request.user)
+
+    def _latest_capture(self, obj):
+        if not hasattr(obj, "_latest_capture_cache"):
+            obj._latest_capture_cache = obj.captures.order_by("-created_at").first()
+        return obj._latest_capture_cache
+
+    def _latest_analysis(self, obj):
+        if not hasattr(obj, "_latest_analysis_cache"):
+            obj._latest_analysis_cache = obj.analysis_results.order_by("-created_at").first()
+        return obj._latest_analysis_cache
+
+    def get_analysis_type(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return None
+        if capture.source_type == CaptureRequest.SourceType.API:
+            return "manual"
+        if capture.source_type == CaptureRequest.SourceType.ELECTRON:
+            return "realtime"
+        return capture.source_type
+
+    def get_avatar_name(self, obj):
+        return obj.avatar.name if obj.avatar else obj.contact_name
+
+    def get_latest_summary(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.summary if analysis else ""
+
+    def get_latest_emotion(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.emotion if analysis else None
+
+    def get_latest_tone(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.tone if analysis else None
+
+    def get_latest_risk_level(self, obj):
+        analysis = self._latest_analysis(obj)
+        return analysis.risk_level if analysis else None
+
+    def get_latest_capture_status(self, obj):
+        capture = self._latest_capture(obj)
+        return capture.processing_status if capture else None
 
     class Meta:
         model = ConversationSession
@@ -233,6 +346,13 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
             "analysis_goal",
             "situation_context",
             "status",
+            "analysis_type",
+            "avatar_name",
+            "latest_summary",
+            "latest_emotion",
+            "latest_tone",
+            "latest_risk_level",
+            "latest_capture_status",
             "created_at",
             "updated_at",
         ]
@@ -243,6 +363,49 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
     avatar = AvatarSerializer(read_only=True)
     captures = CaptureRequestSerializer(many=True, read_only=True)
     analysis_results = AnalysisResultSerializer(many=True, read_only=True)
+    analysis_type = serializers.SerializerMethodField()
+    latest_capture = serializers.SerializerMethodField()
+    latest_messages = serializers.SerializerMethodField()
+    latest_analysis = serializers.SerializerMethodField()
+
+    def _latest_capture(self, obj):
+        if not hasattr(obj, "_latest_capture_cache"):
+            obj._latest_capture_cache = obj.captures.order_by("-created_at").first()
+        return obj._latest_capture_cache
+
+    def _latest_analysis(self, obj):
+        if not hasattr(obj, "_latest_analysis_cache"):
+            obj._latest_analysis_cache = obj.analysis_results.order_by("-created_at").first()
+        return obj._latest_analysis_cache
+
+    def get_analysis_type(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return None
+        if capture.source_type == CaptureRequest.SourceType.API:
+            return "manual"
+        if capture.source_type == CaptureRequest.SourceType.ELECTRON:
+            return "realtime"
+        return capture.source_type
+
+    def get_latest_capture(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return None
+        return CaptureRequestSerializer(capture, context=self.context).data
+
+    def get_latest_messages(self, obj):
+        capture = self._latest_capture(obj)
+        if not capture:
+            return []
+        messages = capture.extracted_messages.order_by("message_order", "id")
+        return ExtractedMessageSerializer(messages, many=True, context=self.context).data
+
+    def get_latest_analysis(self, obj):
+        analysis = self._latest_analysis(obj)
+        if not analysis:
+            return None
+        return AnalysisResultSerializer(analysis, context=self.context).data
 
     class Meta:
         model = ConversationSession
@@ -261,6 +424,10 @@ class ConversationSessionDetailSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "updated_at",
+            "analysis_type",
+            "latest_capture",
+            "latest_messages",
+            "latest_analysis",
             "captures",
             "analysis_results",
         ]
