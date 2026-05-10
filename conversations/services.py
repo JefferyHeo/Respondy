@@ -82,6 +82,71 @@ def analyze_capture(capture):
         raise
 
 
+def analyze_manual_message(session, received_message):
+    capture = CaptureRequest.objects.create(
+        session=session,
+        source_type=CaptureRequest.SourceType.API,
+        processing_status=CaptureRequest.ProcessingStatus.ANALYZING,
+        processing_started_at=timezone.now(),
+        screen_context={
+            "analysis_type": "manual_input",
+            "received_message": received_message,
+        },
+    )
+
+    try:
+        response_data = _call_gemini(_build_manual_analysis_payload(session, received_message))
+        parsed = _parse_gemini_response(response_data)
+        analysis = parsed.get("analysis", {})
+
+        message = ExtractedMessage.objects.create(
+            capture_request=capture,
+            session=session,
+            sender_type=ExtractedMessage.SenderType.OTHER,
+            content=received_message,
+            message_order=1,
+            confidence_score=1.0,
+            raw_metadata={"source": "manual_input"},
+        )
+
+        result = AnalysisResult.objects.create(
+            session=session,
+            capture_request=capture,
+            summary=analysis.get("summary", ""),
+            emotion=analysis.get("emotion", AnalysisResult.EmotionType.UNKNOWN),
+            tone=analysis.get("tone", AnalysisResult.ToneType.UNKNOWN),
+            risk_level=analysis.get("risk_level", AnalysisResult.RiskLevel.UNKNOWN),
+            strategy=analysis.get("strategy", ""),
+            recommended_replies=analysis.get("recommended_replies", []),
+            caution_points=analysis.get("caution_points", []),
+            follow_up_suggestions=analysis.get("follow_up_suggestions", []),
+            model_name=settings.GEMINI_MODEL,
+            raw_result=parsed,
+        )
+
+        capture.gemini_analyze_raw = parsed
+        capture.processing_status = CaptureRequest.ProcessingStatus.COMPLETED
+        capture.processing_completed_at = timezone.now()
+        capture.save(update_fields=[
+            "gemini_analyze_raw",
+            "processing_status",
+            "processing_completed_at",
+            "updated_at",
+        ])
+        return capture, message, result
+    except Exception as exc:
+        capture.processing_status = CaptureRequest.ProcessingStatus.FAILED
+        capture.error_message = str(exc)
+        capture.processing_completed_at = timezone.now()
+        capture.save(update_fields=[
+            "processing_status",
+            "error_message",
+            "processing_completed_at",
+            "updated_at",
+        ])
+        raise
+
+
 def _build_gemini_payload(capture):
     session = capture.session
     avatar = session.avatar
@@ -152,6 +217,75 @@ Return only valid JSON with this exact shape:
                 {"text": prompt},
                 {"inline_data": _get_image_inline_data(capture)},
             ],
+        }],
+        "generationConfig": {
+            "temperature": 0.4,
+            "responseMimeType": "application/json",
+        },
+    }
+
+
+def _build_manual_analysis_payload(session, received_message):
+    avatar = session.avatar
+    contact_name = avatar.name if avatar else session.contact_name
+    relation_type = avatar.current_relation if avatar and avatar.current_relation else (
+        avatar.relation_type if avatar else session.relation_type
+    )
+    relationship_background = avatar.background if avatar else session.relationship_context
+    avatar_context = "No avatar selected."
+    if avatar:
+        avatar_context = f"""
+- avatar name: {avatar.name}
+- avatar age group: {avatar.age_group}
+- avatar current relationship: {avatar.current_relation}
+- avatar target relationship: {avatar.target_relation}
+- avatar relationship type: {avatar.relation_type}
+- avatar age: {avatar.age or "unknown"}
+- avatar gender: {avatar.gender}
+- avatar personality: {avatar.personality}
+- avatar speech style: {avatar.speech_style}
+- avatar background with user: {avatar.background}
+- avatar memo: {avatar.memo}
+"""
+
+    prompt = f"""
+You are Respondy's Korean reply coaching engine.
+Analyze a manually entered received message and recommend natural Korean replies.
+
+Session context:
+- title: {session.title}
+- platform: {session.platform_type}
+- contact name: {contact_name}
+- relationship: {relation_type}
+- goal type: {session.goal_type}
+- relationship background: {relationship_background}
+- current situation: {session.situation_context}
+- user's analysis goal: {session.analysis_goal}
+
+Avatar context:
+{avatar_context}
+
+Received message from the other person:
+{received_message}
+
+Return only valid JSON with this exact shape:
+{{
+  "analysis": {{
+    "summary": "short Korean summary",
+    "emotion": "positive|neutral|annoyed|sad|angry|anxious|mixed|unknown",
+    "tone": "friendly|casual|polite|cold|sensitive|aggressive|awkward|unknown",
+    "risk_level": "low|medium|high|unknown",
+    "strategy": "Korean reply strategy",
+    "recommended_replies": ["Korean reply 1", "Korean reply 2", "Korean reply 3"],
+    "caution_points": ["Korean caution point"],
+    "follow_up_suggestions": ["Korean follow-up suggestion"]
+  }}
+}}
+"""
+    return {
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": prompt}],
         }],
         "generationConfig": {
             "temperature": 0.4,
