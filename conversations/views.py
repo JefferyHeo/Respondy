@@ -19,6 +19,7 @@ from .serializers import (
     AvatarSerializer,
     SignupSerializer,
     UserSerializer,
+    PasswordChangeSerializer,
     UserProfileSerializer,
     ConversationSessionSerializer,
     ConversationSessionDetailSerializer,
@@ -136,6 +137,7 @@ class UserProfileView(APIView):
             request.user,
             data=request.data,
             partial=True,
+            context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -143,6 +145,22 @@ class UserProfileView(APIView):
             "success": True,
             "message": "profile updated successfully",
             "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PasswordChangeSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({
+            "success": True,
+            "message": "password changed successfully"
         }, status=status.HTTP_200_OK)
 
 
