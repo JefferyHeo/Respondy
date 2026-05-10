@@ -182,6 +182,7 @@ class CaptureRequest(models.Model):
     image_url = models.URLField(max_length=1000, blank=True)
     image_file = models.FileField(upload_to="captures/%Y/%m/%d/", blank=True, null=True)
     image_base64 = models.TextField(blank=True)
+    image_hash = models.CharField(max_length=128, blank=True)
     source_type = models.CharField(
         max_length=20,
         choices=SourceType.choices,
@@ -212,6 +213,7 @@ class CaptureRequest(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["session", "processing_status"]),
+            models.Index(fields=["session", "image_hash"]),
             models.Index(fields=["uploaded_at"]),
             models.Index(fields=["detected_at"]),
         ]
