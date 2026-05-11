@@ -25,7 +25,10 @@ def generate_avatar_reply(chat_session, user_message):
         content=user_message,
         status=AIChatMessage.MessageStatus.COMPLETED,
     )
+    return generate_avatar_reply_for_message(chat_session, user_chat_message)
 
+
+def generate_avatar_reply_for_message(chat_session, user_chat_message):
     try:
         payload = _build_gemini_payload(chat_session)
         response_data = _call_gemini(payload)
@@ -62,7 +65,9 @@ def _build_gemini_payload(chat_session):
     if not avatar:
         raise ValueError("AI chat session requires an avatar.")
 
-    recent_messages = chat_session.messages.order_by("-created_at", "-id")[:RECENT_MESSAGE_LIMIT]
+    recent_messages = chat_session.messages.filter(
+        status=AIChatMessage.MessageStatus.COMPLETED,
+    ).exclude(content="").order_by("-created_at", "-id")[:RECENT_MESSAGE_LIMIT]
     conversation_history = "\n".join(
         f"{message.sender_type}: {message.content}"
         for message in reversed(list(recent_messages))
