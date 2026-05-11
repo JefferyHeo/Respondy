@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AIChatSession
+from .models import AIChatMessage, AIChatSession
 from .serializers import (
     AIChatMessageSerializer,
     AIChatSessionDetailSerializer,
@@ -12,7 +12,11 @@ from .serializers import (
     AIChatSessionUpdateSerializer,
     SendAIChatMessageSerializer,
 )
-from .services import AIChatReplyGenerationError, generate_avatar_reply
+from .services import (
+    AIChatReplyGenerationError,
+    generate_avatar_reply,
+    generate_avatar_reply_for_message,
+)
 
 
 class AIChatSessionListCreateView(generics.ListCreateAPIView):
@@ -110,6 +114,55 @@ class SendAIChatMessageView(APIView):
             return Response({
                 "success": False,
                 "message": "AI 답변 생성에 실패했습니다. 잠시 후 다시 시도해주세요.",
+                "error": str(exc.original_error),
+                "data": {
+                    "user_message": AIChatMessageSerializer(exc.user_message).data,
+                    "assistant_message": AIChatMessageSerializer(exc.assistant_message).data,
+                },
+            }, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response({
+            "success": True,
+            "data": {
+                "user_message": AIChatMessageSerializer(user_message).data,
+                "assistant_message": AIChatMessageSerializer(assistant_message).data,
+            },
+        }, status=status.HTTP_201_CREATED)
+
+
+class RetryAIChatMessageView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        chat_session = AIChatSession.objects.filter(
+            id=pk,
+            user=request.user,
+            status=AIChatSession.StatusType.ACTIVE,
+        ).first()
+
+        if not chat_session:
+            raise PermissionDenied("해당 AI 채팅에 접근할 수 없습니다.")
+
+        user_message = chat_session.messages.filter(
+            sender_type=AIChatMessage.SenderType.USER,
+            status=AIChatMessage.MessageStatus.COMPLETED,
+        ).order_by("-created_at", "-id").first()
+
+        if not user_message:
+            return Response({
+                "success": False,
+                "message": "다시 시도할 사용자 메시지가 없습니다.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            _, assistant_message = generate_avatar_reply_for_message(
+                chat_session,
+                user_message,
+            )
+        except AIChatReplyGenerationError as exc:
+            return Response({
+                "success": False,
+                "message": "AI 답변 재생성에 실패했습니다. 잠시 후 다시 시도해주세요.",
                 "error": str(exc.original_error),
                 "data": {
                     "user_message": AIChatMessageSerializer(exc.user_message).data,
