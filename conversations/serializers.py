@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -33,10 +34,20 @@ class SignupSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     birth_date = serializers.SerializerMethodField()
+    privacy_consent_at = serializers.SerializerMethodField()
+    privacy_consent_version = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "name", "email", "birth_date"]
+        fields = [
+            "id",
+            "username",
+            "name",
+            "email",
+            "birth_date",
+            "privacy_consent_at",
+            "privacy_consent_version",
+        ]
 
     def get_name(self, obj):
         profile, _ = UserProfile.objects.get_or_create(
@@ -52,15 +63,38 @@ class UserSerializer(serializers.ModelSerializer):
         )
         return profile.birth_date
 
+    def get_privacy_consent_at(self, obj):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=obj,
+            defaults={"name": obj.username},
+        )
+        return profile.privacy_consent_at
+
+    def get_privacy_consent_version(self, obj):
+        profile, _ = UserProfile.objects.get_or_create(
+            user=obj,
+            defaults={"name": obj.username},
+        )
+        return profile.privacy_consent_version
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=150)
     birth_date = serializers.DateField(required=False, allow_null=True)
+    privacy_consent_at = serializers.DateTimeField(read_only=True)
+    privacy_consent_version = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
-        fields = ["id", "name", "email", "birth_date"]
-        read_only_fields = ["id"]
+        fields = [
+            "id",
+            "name",
+            "email",
+            "birth_date",
+            "privacy_consent_at",
+            "privacy_consent_version",
+        ]
+        read_only_fields = ["id", "privacy_consent_at", "privacy_consent_version"]
 
     def to_representation(self, instance):
         profile, _ = UserProfile.objects.get_or_create(
@@ -72,6 +106,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "name": profile.name or instance.username,
             "email": instance.email,
             "birth_date": profile.birth_date,
+            "privacy_consent_at": profile.privacy_consent_at,
+            "privacy_consent_version": profile.privacy_consent_version,
         }
 
     def update(self, instance, validated_data):
@@ -95,6 +131,31 @@ class UserProfileSerializer(serializers.ModelSerializer):
             profile.save(update_fields=["name", "birth_date", "updated_at"])
 
         return instance
+
+
+class PrivacyConsentSerializer(serializers.Serializer):
+    agreed = serializers.BooleanField()
+    version = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+    def validate_agreed(self, value):
+        if not value:
+            raise serializers.ValidationError("privacy consent is required.")
+        return value
+
+    def save(self, **kwargs):
+        user = self.context["request"].user
+        profile, _ = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={"name": user.username},
+        )
+        profile.privacy_consent_at = timezone.now()
+        profile.privacy_consent_version = self.validated_data.get("version") or "2026-05-13"
+        profile.save(update_fields=[
+            "privacy_consent_at",
+            "privacy_consent_version",
+            "updated_at",
+        ])
+        return profile
 
 
 class PasswordChangeSerializer(serializers.Serializer):
