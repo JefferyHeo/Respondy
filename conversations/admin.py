@@ -11,7 +11,7 @@ from .models import (
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "name", "birth_date", "updated_at")
+    list_display = ("id", "user", "name", "birth_date", "privacy_consent_at", "privacy_consent_version", "updated_at")
     search_fields = ("name", "user__username", "user__email")
     ordering = ("-updated_at",)
 

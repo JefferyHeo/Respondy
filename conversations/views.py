@@ -9,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from .models import (
+    UserProfile,
     Avatar,
     ConversationSession,
     CaptureRequest,
@@ -21,6 +22,7 @@ from .serializers import (
     UserSerializer,
     PasswordChangeSerializer,
     UserProfileSerializer,
+    PrivacyConsentSerializer,
     ConversationSessionSerializer,
     ConversationSessionDetailSerializer,
     CaptureRequestSerializer,
@@ -32,6 +34,21 @@ from .serializers import (
 from .services import analyze_capture, analyze_manual_message, build_capture_image_hash
 
 User = get_user_model()
+
+
+def has_privacy_consent(user):
+    try:
+        return bool(user.profile.privacy_consent_at)
+    except UserProfile.DoesNotExist:
+        return False
+
+
+def privacy_consent_required_response():
+    return Response({
+        "success": False,
+        "message": "privacy consent is required before AI analysis.",
+        "code": "privacy_consent_required",
+    }, status=status.HTTP_403_FORBIDDEN)
 
 
 def health_check(request):
@@ -164,6 +181,23 @@ class PasswordChangeView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+class PrivacyConsentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PrivacyConsentSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({
+            "success": True,
+            "message": "privacy consent saved successfully",
+            "data": UserProfileSerializer(request.user).data,
+        }, status=status.HTTP_200_OK)
+
+
 class AvatarListCreateView(generics.ListCreateAPIView):
     serializer_class = AvatarSerializer
     permission_classes = [IsAuthenticated]
@@ -206,6 +240,9 @@ class ManualAnalysisView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if not has_privacy_consent(request.user):
+            return privacy_consent_required_response()
+
         serializer = ManualAnalysisRequestSerializer(
             data=request.data,
             context={"request": request},
@@ -290,6 +327,9 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
         return data
 
     def create(self, request, *args, **kwargs):
+        if not has_privacy_consent(request.user):
+            return privacy_consent_required_response()
+
         session = self.get_session()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
