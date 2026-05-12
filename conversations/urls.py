@@ -16,6 +16,7 @@ from .views import (
     ManualAnalysisView,
     ConversationSessionListCreateView,
     ConversationSessionDetailView,
+    EndConversationSessionView,
     CaptureRequestListCreateView,
     ExtractedMessageListCreateView,
     AnalysisResultListCreateView,
@@ -41,6 +42,7 @@ urlpatterns = [
 
     path("sessions/", ConversationSessionListCreateView.as_view(), name="session-list-create"),
     path("sessions/<int:pk>/", ConversationSessionDetailView.as_view(), name="session-detail"),
+    path("sessions/<int:pk>/end/", EndConversationSessionView.as_view(), name="session-end"),
 
     path("sessions/<int:session_id>/captures/", CaptureRequestListCreateView.as_view(), name="capture-list-create"),
     path("captures/<int:capture_id>/messages/", ExtractedMessageListCreateView.as_view(), name="extracted-message-list-create"),
