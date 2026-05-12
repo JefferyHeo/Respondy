@@ -213,6 +213,23 @@ Session context:
 Avatar context:
 {avatar_context}
 
+Extraction rules:
+- Extract only visible chat messages from the screenshot. Ignore buttons, menus, timestamps, room codes, profile names, and system UI unless they are needed to understand the message.
+- Preserve the other person's message text as-is, including slang, typos, profanity, laughter, punctuation, and emojis.
+- If a sticker or emoticon is important, describe it briefly in Korean inside content, for example "[웃는 이모티콘]" or "[당황한 표정의 이모티콘]".
+- Do not invent hidden or cropped messages. If text is unreadable, use sender_type "unknown" and content "[읽기 어려움]".
+- Use message_order to reflect the visible chronological order.
+
+Analysis and reply rules:
+- Write all analysis fields in Korean.
+- Reflect the avatar relationship, current situation, and user's analysis goal.
+- Do not overreact to short replies such as "그래", "ㅇㅇ", "ㅋㅋ"; interpret them cautiously.
+- Recommended replies must be immediately copy-pasteable KakaoTalk-style messages.
+- Return exactly 3 recommended replies. Keep each reply natural, short, and not overly formal unless the relationship requires it.
+- Avoid excessive confession, pressure, apology, persuasion, or emotional over-explanation.
+- If the conversation seems risky, tense, or ambiguous, increase risk_level and include concrete caution_points.
+- If no meaningful chat message is visible, set emotion, tone, and risk_level to "unknown" and recommend asking for clarification.
+
 Return only valid JSON with this exact shape:
 {{
   "messages": [
@@ -292,6 +309,17 @@ Avatar context:
 
 Received message from the other person:
 {received_message}
+
+Analysis and reply rules:
+- Write all analysis fields in Korean.
+- Analyze the received message in the context of the selected avatar, relationship, situation, and user's goal.
+- Preserve the meaning of the received message as written, including slang, typos, profanity, laughter, punctuation, and emojis.
+- Do not assume romantic interest, anger, rejection, or conflict from a short message alone.
+- Recommended replies must be immediately copy-pasteable KakaoTalk-style messages.
+- Return exactly 3 recommended replies. Keep each reply natural, short, and not overly formal unless the relationship requires it.
+- Avoid excessive confession, pressure, apology, persuasion, or emotional over-explanation.
+- If the received message is ambiguous, explain the ambiguity in summary or strategy and suggest safe, low-pressure replies.
+- If the message contains insults, conflict, or sensitive content, raise risk_level and include caution_points.
 
 Return only valid JSON with this exact shape:
 {{
