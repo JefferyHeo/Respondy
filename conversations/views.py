@@ -236,6 +236,31 @@ class ConversationSessionDetailView(generics.RetrieveDestroyAPIView):
         return ConversationSession.objects.filter(user=self.request.user)
 
 
+class EndConversationSessionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        session = ConversationSession.objects.filter(
+            id=pk,
+            user=request.user,
+        ).first()
+
+        if not session:
+            raise PermissionDenied("해당 세션에 접근할 수 없습니다.")
+
+        session.status = ConversationSession.StatusType.ARCHIVED
+        session.save(update_fields=["status", "updated_at"])
+
+        return Response({
+            "success": True,
+            "message": "session ended successfully",
+            "data": ConversationSessionDetailSerializer(
+                session,
+                context={"request": request},
+            ).data,
+        }, status=status.HTTP_200_OK)
+
+
 class ManualAnalysisView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -331,6 +356,13 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
             return privacy_consent_required_response()
 
         session = self.get_session()
+        if session.status != ConversationSession.StatusType.ACTIVE:
+            return Response({
+                "success": False,
+                "message": "session is already ended.",
+                "code": "session_ended",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
