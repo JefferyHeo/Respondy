@@ -124,6 +124,44 @@ class ConversationsAPITests(APITestCase):
             }],
         }
 
+    def mock_last_user_response(self):
+        return {
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "text": """
+{
+  "messages": [
+    {
+      "sender_type": "other",
+      "content": "그래",
+      "message_order": 1,
+      "confidence_score": 0.95
+    },
+    {
+      "sender_type": "user",
+      "content": "오케이",
+      "message_order": 2,
+      "confidence_score": 0.95
+    }
+  ],
+  "analysis": {
+    "summary": "마지막 메시지는 사용자 메시지입니다.",
+    "emotion": "neutral",
+    "tone": "casual",
+    "risk_level": "low",
+    "strategy": "상대방의 새 메시지를 기다립니다.",
+    "recommended_replies": ["", "", ""],
+    "caution_points": [],
+    "follow_up_suggestions": []
+  }
+}
+""",
+                    }],
+                },
+            }],
+        }
+
     def test_signup_creates_user_profile_and_tokens(self):
         response = self.client.post("/api/auth/signup/", {
             "username": "newuser",
@@ -357,6 +395,55 @@ class ConversationsAPITests(APITestCase):
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(list_response.data, [])
+
+    @patch("conversations.services._call_gemini")
+    def test_capture_is_skipped_when_last_message_is_user(self, mock_call_gemini):
+        self.authenticate()
+        self.consent()
+        mock_call_gemini.return_value = self.mock_last_user_response()
+        session = ConversationSession.objects.create(
+            user=self.user,
+            avatar=self.avatar,
+            title="실시간 분석",
+        )
+
+        response = self.client.post(f"/api/sessions/{session.id}/captures/", {
+            "image_base64": "data:image/png;base64,BBBB",
+            "source_type": "electron",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["skipped"])
+        self.assertEqual(response.data["code"], "no_analyzable_other_message")
+        self.assertEqual(ExtractedMessage.objects.count(), 0)
+        self.assertEqual(AnalysisResult.objects.count(), 0)
+
+    @patch("conversations.services._call_gemini")
+    def test_capture_is_skipped_when_latest_other_message_is_unchanged(self, mock_call_gemini):
+        self.authenticate()
+        self.consent()
+        mock_call_gemini.return_value = self.mock_analysis_response()
+        session = ConversationSession.objects.create(
+            user=self.user,
+            avatar=self.avatar,
+            title="실시간 분석",
+        )
+        first_response = self.client.post(f"/api/sessions/{session.id}/captures/", {
+            "image_base64": "data:image/png;base64,AAAA",
+            "source_type": "electron",
+        }, format="json")
+        second_response = self.client.post(f"/api/sessions/{session.id}/captures/", {
+            "image_base64": "data:image/png;base64,CCCC",
+            "source_type": "electron",
+        }, format="json")
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(second_response.data["skipped"])
+        self.assertEqual(second_response.data["code"], "no_new_other_message")
+        self.assertEqual(ExtractedMessage.objects.count(), 1)
+        self.assertEqual(AnalysisResult.objects.count(), 1)
+        self.assertEqual(CaptureRequest.objects.count(), 2)
 
     @patch("conversations.services._call_gemini")
     def test_duplicate_user_only_capture_is_skipped_without_new_gemini_call(self, mock_call_gemini):
