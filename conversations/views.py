@@ -33,6 +33,7 @@ from .serializers import (
     get_tokens_for_user,
 )
 from .services import (
+    NoNewOtherMessage,
     NoAnalyzableMessage,
     analyze_capture,
     analyze_manual_message,
@@ -40,6 +41,11 @@ from .services import (
 )
 
 User = get_user_model()
+
+CAPTURE_SKIP_CODES = {
+    NoAnalyzableMessage.code,
+    NoNewOtherMessage.code,
+}
 
 
 def has_privacy_consent(user):
@@ -403,17 +409,17 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
                 Q(processing_status=CaptureRequest.ProcessingStatus.COMPLETED)
                 | Q(
                     processing_status=CaptureRequest.ProcessingStatus.FAILED,
-                    error_message=NoAnalyzableMessage.code,
+                    error_message__in=CAPTURE_SKIP_CODES,
                 )
             ).order_by("-created_at").first()
             if duplicate_capture:
-                skipped = duplicate_capture.error_message == NoAnalyzableMessage.code
+                skipped = duplicate_capture.error_message in CAPTURE_SKIP_CODES
                 return Response({
                     "success": True,
                     "duplicate": True,
                     "skipped": skipped,
-                    "code": NoAnalyzableMessage.code if skipped else "",
-                    "message": "no analyzable other message skipped" if skipped else "same capture skipped",
+                    "code": duplicate_capture.error_message if skipped else "",
+                    "message": "capture skipped" if skipped else "same capture skipped",
                     "data": self.get_capture_response_data(duplicate_capture),
                 }, status=status.HTTP_200_OK)
 
@@ -422,13 +428,13 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
 
         try:
             analyze_capture(capture)
-        except NoAnalyzableMessage:
+        except (NoAnalyzableMessage, NoNewOtherMessage) as exc:
             return Response({
                 "success": True,
                 "duplicate": False,
                 "skipped": True,
-                "code": NoAnalyzableMessage.code,
-                "message": "no analyzable other message skipped",
+                "code": exc.code,
+                "message": "capture skipped",
                 "data": self.get_capture_response_data(capture),
             }, status=status.HTTP_200_OK)
         except Exception:

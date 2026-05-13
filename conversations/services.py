@@ -22,6 +22,13 @@ class NoAnalyzableMessage(ValueError):
         return self.code
 
 
+class NoNewOtherMessage(ValueError):
+    code = "no_new_other_message"
+
+    def __str__(self):
+        return self.code
+
+
 def build_capture_image_hash(attrs):
     if attrs.get("image_base64"):
         return _hmac_hexdigest(_strip_data_url(attrs["image_base64"]).encode("utf-8"))
@@ -58,8 +65,11 @@ def analyze_capture(capture):
 
         parsed = _parse_gemini_response(response_data)
         messages = _normalize_messages(parsed.get("messages", []))
-        if not _has_analyzable_other_message(messages):
+        latest_message = _latest_meaningful_message(messages)
+        if not latest_message or latest_message["sender_type"] != ExtractedMessage.SenderType.OTHER:
             raise NoAnalyzableMessage()
+        if _is_same_as_latest_saved_other_message(capture.session, latest_message["content"]):
+            raise NoNewOtherMessage()
 
         analysis = parsed.get("analysis", {})
 
@@ -454,13 +464,39 @@ def _normalize_messages(messages):
     return normalized
 
 
-def _has_analyzable_other_message(messages):
+def _latest_meaningful_message(messages):
     unreadable_values = {"[읽기 어려움]", "[인식 불가]", "[읽을 수 없음]"}
-    return any(
-        message.get("sender_type") == ExtractedMessage.SenderType.OTHER
+    meaningful_messages = [
+        message
+        for message in messages
+        if message.get("sender_type") in {
+            ExtractedMessage.SenderType.USER,
+            ExtractedMessage.SenderType.OTHER,
+        }
         and message.get("content", "").strip()
         and message.get("content", "").strip() not in unreadable_values
-        for message in messages
+    ]
+    if not meaningful_messages:
+        return None
+    return sorted(
+        meaningful_messages,
+        key=lambda message: message.get("message_order") or 0,
+    )[-1]
+
+
+def _is_same_as_latest_saved_other_message(session, content):
+    latest_other_message = (
+        ExtractedMessage.objects
+        .filter(
+            session=session,
+            sender_type=ExtractedMessage.SenderType.OTHER,
+        )
+        .order_by("-capture_request__created_at", "-message_order", "-id")
+        .first()
+    )
+    return bool(
+        latest_other_message
+        and latest_other_message.content.strip() == content.strip()
     )
 
 
