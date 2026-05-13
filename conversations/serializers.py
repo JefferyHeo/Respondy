@@ -1,8 +1,10 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
+import re
 
 from .models import (
     UserProfile,
@@ -21,6 +23,10 @@ class SignupSerializer(serializers.ModelSerializer):
         model = User
         fields = ["username", "email", "password"]
 
+    def validate_password(self, value):
+        validate_respondy_password(value)
+        return value
+
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data["username"],
@@ -29,6 +35,19 @@ class SignupSerializer(serializers.ModelSerializer):
         )
         UserProfile.objects.create(user=user, name=user.username)
         return user
+
+
+def validate_respondy_password(value, user=None):
+    try:
+        validate_password(value, user)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(exc.messages)
+    if len(value) < 8:
+        raise serializers.ValidationError("비밀번호는 8자 이상이어야 합니다.")
+    if not re.search(r"[A-Za-z]", value):
+        raise serializers.ValidationError("비밀번호에는 영문이 포함되어야 합니다.")
+    if not re.search(r"\d", value):
+        raise serializers.ValidationError("비밀번호에는 숫자가 포함되어야 합니다.")
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -174,7 +193,13 @@ class PasswordChangeSerializer(serializers.Serializer):
             raise serializers.ValidationError({
                 "new_password_confirm": "새 비밀번호가 일치하지 않습니다."
             })
-        validate_password(attrs["new_password"], self.context["request"].user)
+        try:
+            validate_respondy_password(
+                attrs["new_password"],
+                self.context["request"].user,
+            )
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"new_password": exc.detail})
         return attrs
 
     def save(self, **kwargs):
@@ -325,6 +350,11 @@ class ManualAnalysisRequestSerializer(serializers.Serializer):
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             self.fields["avatar_id"].queryset = Avatar.objects.filter(user=request.user)
+
+    def validate_received_message(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("받은 메시지를 입력해주세요.")
+        return value.strip()
 
 
 class ConversationSessionSerializer(serializers.ModelSerializer):

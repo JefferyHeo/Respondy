@@ -1,6 +1,6 @@
 from django.http import JsonResponse
 from django.contrib.auth import authenticate, get_user_model
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Q, Subquery
 
 from rest_framework import generics, status
 from rest_framework.views import APIView
@@ -32,7 +32,12 @@ from .serializers import (
     ManualAnalysisRequestSerializer,
     get_tokens_for_user,
 )
-from .services import analyze_capture, analyze_manual_message, build_capture_image_hash
+from .services import (
+    NoAnalyzableMessage,
+    analyze_capture,
+    analyze_manual_message,
+    build_capture_image_hash,
+)
 
 User = get_user_model()
 
@@ -233,6 +238,7 @@ class ConversationSessionListCreateView(generics.ListCreateAPIView):
         return (
             ConversationSession.objects
             .filter(user=self.request.user)
+            .filter(analysis_results__isnull=False)
             .select_related("avatar")
             .annotate(
                 latest_capture_source_type=Subquery(latest_capture.values("source_type")[:1]),
@@ -242,6 +248,7 @@ class ConversationSessionListCreateView(generics.ListCreateAPIView):
                 latest_analysis_tone=Subquery(latest_analysis.values("tone")[:1]),
                 latest_analysis_risk_level=Subquery(latest_analysis.values("risk_level")[:1]),
             )
+            .distinct()
             .order_by("-updated_at")
         )
 
@@ -392,13 +399,21 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
             duplicate_capture = CaptureRequest.objects.filter(
                 session=session,
                 image_hash=image_hash,
-                processing_status=CaptureRequest.ProcessingStatus.COMPLETED,
+            ).filter(
+                Q(processing_status=CaptureRequest.ProcessingStatus.COMPLETED)
+                | Q(
+                    processing_status=CaptureRequest.ProcessingStatus.FAILED,
+                    error_message=NoAnalyzableMessage.code,
+                )
             ).order_by("-created_at").first()
             if duplicate_capture:
+                skipped = duplicate_capture.error_message == NoAnalyzableMessage.code
                 return Response({
                     "success": True,
                     "duplicate": True,
-                    "message": "same capture skipped",
+                    "skipped": skipped,
+                    "code": NoAnalyzableMessage.code if skipped else "",
+                    "message": "no analyzable other message skipped" if skipped else "same capture skipped",
                     "data": self.get_capture_response_data(duplicate_capture),
                 }, status=status.HTTP_200_OK)
 
@@ -407,12 +422,22 @@ class CaptureRequestListCreateView(generics.ListCreateAPIView):
 
         try:
             analyze_capture(capture)
+        except NoAnalyzableMessage:
+            return Response({
+                "success": True,
+                "duplicate": False,
+                "skipped": True,
+                "code": NoAnalyzableMessage.code,
+                "message": "no analyzable other message skipped",
+                "data": self.get_capture_response_data(capture),
+            }, status=status.HTTP_200_OK)
         except Exception:
             pass
 
         return Response({
             "success": capture.processing_status == CaptureRequest.ProcessingStatus.COMPLETED,
             "duplicate": False,
+            "skipped": False,
             "message": "capture analyzed successfully"
             if capture.processing_status == CaptureRequest.ProcessingStatus.COMPLETED
             else "capture analysis failed",
