@@ -361,6 +361,14 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
         return obj._latest_analysis_cache
 
     def get_analysis_type(self, obj):
+        source_type = getattr(obj, "latest_capture_source_type", None)
+        if source_type:
+            if source_type == CaptureRequest.SourceType.API:
+                return "manual"
+            if source_type == CaptureRequest.SourceType.ELECTRON:
+                return "realtime"
+            return source_type
+
         capture = self._latest_capture(obj)
         if not capture:
             return None
@@ -374,22 +382,42 @@ class ConversationSessionSerializer(serializers.ModelSerializer):
         return obj.avatar.name if obj.avatar else obj.contact_name
 
     def get_latest_summary(self, obj):
+        summary = getattr(obj, "latest_analysis_summary", None)
+        if summary is not None:
+            return summary
+
         analysis = self._latest_analysis(obj)
         return analysis.summary if analysis else ""
 
     def get_latest_emotion(self, obj):
+        emotion = getattr(obj, "latest_analysis_emotion", None)
+        if emotion is not None:
+            return emotion
+
         analysis = self._latest_analysis(obj)
         return analysis.emotion if analysis else None
 
     def get_latest_tone(self, obj):
+        tone = getattr(obj, "latest_analysis_tone", None)
+        if tone is not None:
+            return tone
+
         analysis = self._latest_analysis(obj)
         return analysis.tone if analysis else None
 
     def get_latest_risk_level(self, obj):
+        risk_level = getattr(obj, "latest_analysis_risk_level", None)
+        if risk_level is not None:
+            return risk_level
+
         analysis = self._latest_analysis(obj)
         return analysis.risk_level if analysis else None
 
     def get_latest_capture_status(self, obj):
+        processing_status = getattr(obj, "latest_capture_status_value", None)
+        if processing_status is not None:
+            return processing_status
+
         capture = self._latest_capture(obj)
         return capture.processing_status if capture else None
 

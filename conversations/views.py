@@ -1,5 +1,6 @@
 from django.http import JsonResponse
 from django.contrib.auth import authenticate, get_user_model
+from django.db.models import OuterRef, Subquery
 
 from rest_framework import generics, status
 from rest_framework.views import APIView
@@ -222,7 +223,27 @@ class ConversationSessionListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ConversationSession.objects.filter(user=self.request.user).order_by("-updated_at")
+        latest_capture = CaptureRequest.objects.filter(
+            session=OuterRef("pk")
+        ).order_by("-created_at")
+        latest_analysis = AnalysisResult.objects.filter(
+            session=OuterRef("pk")
+        ).order_by("-created_at")
+
+        return (
+            ConversationSession.objects
+            .filter(user=self.request.user)
+            .select_related("avatar")
+            .annotate(
+                latest_capture_source_type=Subquery(latest_capture.values("source_type")[:1]),
+                latest_capture_status_value=Subquery(latest_capture.values("processing_status")[:1]),
+                latest_analysis_summary=Subquery(latest_analysis.values("summary")[:1]),
+                latest_analysis_emotion=Subquery(latest_analysis.values("emotion")[:1]),
+                latest_analysis_tone=Subquery(latest_analysis.values("tone")[:1]),
+                latest_analysis_risk_level=Subquery(latest_analysis.values("risk_level")[:1]),
+            )
+            .order_by("-updated_at")
+        )
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
